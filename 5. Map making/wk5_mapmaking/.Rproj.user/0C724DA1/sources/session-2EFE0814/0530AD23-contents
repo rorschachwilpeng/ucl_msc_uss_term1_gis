@@ -1,0 +1,211 @@
+
+# 3.1 Learning Outcome ----------------------------------------------------
+
+  # By the end of this practical you should be able to:
+  #   
+  # Load, manipulate and interpret raster layers
+  # Observe and critique different descriptive data manipulation methods and outputs
+
+
+# 3.4. Introduction -------------------------------------------------------
+
+  # This practical is composed of three parts. 
+  # To start with we’re going to explore projection systems in more detail.
+  # In the second part we will load some global raster data into R. 
+  # In the final part we extract data points (cities and towns) from this data and generate some descriptive statistics and histograms.
+
+
+
+# 3.5 Part_1: projections -------------------------------------------------
+
+# 3.5.1 Changing projections
+  # 3.5.1.1 Vector
+  library(sf)
+  library(here)
+  st_layers(here("gadm36_AUS_gpkg", "gadm36_AUS.gpkg")) 
+  
+  Ausoutline <- st_read(here("gadm36_AUS_gpkg", "gadm36_AUS.gpkg"), 
+                        layer='gadm36_AUS_0')
+  
+  # print(Ausoutline)
+  
+  # 3.5.1.2 WGS84
+  
+  # 3.5.1.3 Proj4
+  st_crs(Ausoutline)$proj4string #output:"+proj=longlat +datum=WGS84 +no_defs"; meaning: 以经纬度进行投影，且 uses Earth's centre mass as the corrdinate origin (0,0)
+
+  # 3.5.1.4 EPSG  
+  Ausoutline <- st_read(here("gadm36_AUS_gpkg", "gadm36_AUS.gpkg"), 
+                        layer='gadm36_AUS_0') %>% 
+    st_set_crs(4326)
+  
+  # 3.5.1.5 Reprojecting your spatial data
+  AusoutlinePROJECTED <- Ausoutline %>%
+    st_transform(.,3112)
+  
+  print(AusoutlinePROJECTED)
+  
+# 3.5.2 WorldClim data
+library(raster)
+library(terra)
+  
+  jan <- terra::rast(here("parc3_data","wc2.1_5m_tmin/wc2.1_5m_tmin_01.tif"))
+  jan
+plot(jan)
+  
+  # using the Mollweide projectuion saved to a new project
+  pr1 <- terra::project(jan, "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") #
+  # or
+  newproj<-"ESRI:54009"
+  # get the jan raster and give it the new proj4
+  pr1 <- jan %>%
+    terra::project(., newproj)
+  
+  # plot(pr1)
+  
+  # chaing the projection into WGS84..
+  pr1 <- pr1 %>%
+    terra::project(., "EPSG:4326")
+  plot(pr1)
+  
+# 3.5.3 Data loading
+library(fs)
+  dir_info("parc3_data/wc2.1_5m_tmin/")
+
+library(tidyverse)
+  listfiles <- dir_info("parc3_data/wc2.1_5m_tmin/") %>%
+    filter(str_detect(path, ".tif")) %>%
+    dplyr::select(path) %>%
+    pull() # extract columns as in the next stage the input must be filenames as characters
+
+  listfiles
+  
+  # load all of the data into a SpatRaster
+  worldclimtemp <- listfiles %>%
+    terra::rast()
+  
+  worldclimtemp[[1]]
+
+  month <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+  
+  names(worldclimtemp) <- month #dplyr包中的 rename() 函数不适用于 raster data
+  
+  worldclimtemp$Jan
+  
+# 3.5.4 Raster location
+  site <- c("Brisbane", "Melbourne", "Perth", "Sydney", "Broome", "Darwin", "Orange", 
+            "Bunbury", "Cairns", "Adelaide", "Gold Coast", "Canberra", "Newcastle", 
+            "Wollongong", "Logan City" )
+  lon <- c(153.03, 144.96, 115.86, 151.21, 122.23, 130.84, 149.10, 115.64, 145.77, 
+           138.6, 153.43, 149.13, 151.78, 150.89, 153.12)
+  lat <- c(-27.47, -37.91, -31.95, -33.87, 17.96, -12.46, -33.28, -33.33, -16.92, 
+           -34.93, -28, -35.28, -32.93, -34.42, -27.64)
+  #Put all of this inforamtion into one list 
+  samples <- data.frame(site, lon, lat, row.names="site")
+  # Extract the data from the Rasterstack for all points 
+  AUcitytemp<- terra::extract(worldclimtemp, samples)
+  
+  
+  Aucitytemp2 <- AUcitytemp %>% 
+    as_tibble()%>% 
+    add_column(Site = site, .before = "Jan")
+  
+
+
+
+# 3.6 Part_2: descriptive statistics --------------------------------------
+
+  # 3.6.1 Data preparation
+  Perthtemp <- Aucitytemp2 %>%
+    filter(site=="Perth")
+  
+  # 3.6.2 Histogram
+  hist(as.numeric(Perthtemp)) # 生成的图像，x轴代表“perthtemp”的变量分布，y轴代表 出现频次
+  
+  library(tidyverse)
+  #define where you want the breaks in the historgram
+  userbreak<-c(8,10,12,14,16,18,20,22,24,26)
+  # remove the ID and site columns
+  Perthtemp <- Aucitytemp2 %>%
+    filter(site=="Perth")
+  
+  t<-Perthtemp %>%
+    dplyr::select(Jan:Dec)
+  
+  hist((as.numeric(t)), 
+       breaks=userbreak, 
+       col="red", 
+       main="Histogram of Perth Temperature", 
+       xlab="Temperature", 
+       ylab="Frequency")
+  
+  # check out the his info
+  histinfo <- as.numeric(t) %>%
+    as.numeric()%>%
+    hist(.)
+
+  histinfo
+    # data info: breaks — the cut off points for the bins (or bars), we just specified these
+    # counts — the number of cells in each bin
+    # midpoints — the middle value for each bin
+    # density — the density of data per bin
+  
+  plot(Ausoutline$geom)
+  
+  # st_simplify可以加快读取速度
+  AusoutSIMPLE <- Ausoutline %>%
+    st_simplify(., dTolerance = 1000) %>%
+    st_geometry()%>%
+    plot()
+  
+  print(Ausoutline)
+  
+  #this works nicely for rasters
+  crs(worldclimtemp)
+  
+  Austemp <- Ausoutline %>%
+    # now crop our temp data to the extent
+    terra::crop(worldclimtemp,.)
+  
+  # plot the output
+  plot(Austemp)
+  
+  exactAus<-terra::mask(Austemp, Ausoutline) # mask函数 uses a cookie cutter of the raster with the vector layer
+  
+  #subset using the known location of the raster
+  hist(exactAus[[3]], col="red", main ="March temperature")
+
+# 3.6.4: Histogram with ggplot 
+  exactAusdf <- exactAus %>%
+    as.data.frame()
+  library(ggplot2)
+  # set up the basic histogram
+  gghist <- ggplot(exactAusdf, 
+                   aes(x=Mar)) + 
+    geom_histogram(color="black", 
+                   fill="white")+
+    labs(title="Ggplot2 histogram of Australian March temperatures", 
+         x="Temperature", 
+         y="Frequency")
+  # add a vertical line to the hisogram showing mean tempearture
+  gghist + geom_vline(aes(xintercept=mean(Mar, 
+                                          na.rm=TRUE)),
+                      color="blue", 
+                      linetype="dashed", 
+                      size=1)+
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  squishdata<-exactAusdf%>%
+    pivot_longer(
+      cols = 1:12,
+      names_to = "Month",
+      values_to = "Temp"
+    )
+  
+  twomonths <- squishdata %>%
+    # | = OR
+    filter(., Month=="Jan" | Month=="Jun")
+  
+  
+  
